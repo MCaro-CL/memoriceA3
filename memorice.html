@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memorice Vial</title>
+    <!-- Carga de Tailwind CSS para estilos rápidos y modernos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos personalizados para las tarjetas y la animación de volteo */
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Contenedor de la tarjeta para perspectiva 3D */
+        .card {
+            aspect-ratio: 1 / 1; /* Tarjetas cuadradas */
+            perspective: 1000px;
+            cursor: pointer;
+        }
+
+        /* El contenedor interno que realmente gira */
+        .card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+
+        /* Cuando la tarjeta está "flipped", gira el contenedor interno */
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
+
+        /* Caras frontal (dorso) y trasera (icono) */
+        .card-front,
+        .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden; /* Safari */
+            backface-visibility: hidden;
+            border-radius: 0.5rem; /* Esquinas redondeadas */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem; /* Tamaño del icono/pregunta */
+            line-height: 1;
+        }
+
+        /* Dorso de la tarjeta (visible al inicio) */
+        .card-front {
+            background-color: #3b82f6; /* Azul */
+            color: white;
+        }
+
+        /* Cara de la tarjeta (visible al voltear) */
+        .card-back {
+            background-color: #e5e7eb; /* Gris claro */
+            color: #111827; /* Texto oscuro */
+            transform: rotateY(180deg);
+        }
+
+        /* Estilo para tarjetas que ya son un par */
+        .card.matched {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        /* Estilos para la ventana modal (pop-up) */
+        #modal {
+            transition: opacity 0.3s ease;
+        }
+
+        #modal.show {
+            display: flex;
+        }
+        
+        #modal-content {
+            animation: slide-down 0.3s ease-out;
+        }
+        
+        @keyframes slide-down {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Título y Puntuación -->
+    <header class="text-center mb-6">
+        <h1 class="text-4xl font-bold mb-2">Memorice Vial</h1>
+        <p id="score" class="text-xl text-gray-300">Pares Encontrados: 0 / 15</p>
+        <button id="reset-button" class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-colors">
+            Reiniciar Juego
+        </button>
+    </header>
+
+    <!-- Tablero del Juego -->
+    <main id="game-board" class="grid grid-cols-5 sm:grid-cols-6 gap-2 sm:gap-4 max-w-2xl w-full">
+        <!-- Las tarjetas se generarán aquí con JavaScript -->
+    </main>
+
+    <!-- Ventana Modal para Definiciones -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-70 backdrop-blur-sm items-center justify-center p-4 hidden">
+        <div id="modal-content" class="bg-white text-gray-900 rounded-lg shadow-xl max-w-md w-full p-6">
+            <!-- Título del Modal -->
+            <div class="flex items-center mb-4">
+                <span id="modal-icon" class="text-4xl mr-4"></span>
+                <h2 id="modal-title" class="text-2xl font-bold"></h2>
+            </div>
+            
+            <!-- Definición -->
+            <p id="modal-definition" class="text-base mb-6"></p>
+            
+            <!-- Botón de Cierre -->
+            <button id="modal-close" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors">
+                Cerrar
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- 1. DATOS DEL JUEGO (Extraídos del PDF) ---
+            // Usamos emojis como "imágenes" para mantenerlo en 1 solo archivo.
+            const cardData = [
+                { id: 'conductor', icon: '👨‍✈️', title: 'Conductor', def: 'Toda persona que conduce, maneja o tiene control físico de un vehículo motorizado en la vía pública; que controla o maneja un vehículo remolcado por otro; o que dirige, maniobra o está a cargo del manejo directo de cualquier otro vehículo...' },
+                { id: 'licencia', icon: '🆔', title: 'Licencia de Conductor', def: 'Documento que la autoridad competente otorga a una persona para conducir un vehículo.' },
+                { id: 'acera', icon: '🚶‍♀️', title: 'Acera', def: 'Parte de una vía destinada al uso de peatones.' },
+                { id: 'autopista', icon: '🛣️', title: 'Autopista', def: 'Vía cuya función principal es permitir desplazamientos de larga distancia entre ciudades o a través de éstas. Tiene calzadas diferentes para cada sentido y está separada del entorno.' },
+                { id: 'calzada', icon: '🚗', title: 'Calzada', def: 'Parte de una vía destinada al uso de vehículos y animales.' },
+                { id: 'ciclovia', icon: '🚲', title: 'Ciclovía', def: 'Espacio destinado al uso exclusivo de bicicletas y triciclos.' },
+                { id: 'ferrocarril', icon: '🚂', title: 'Cruce de Ferrocarriles', def: 'Intersección de una calle o camino con una vía férrea por la cual existe tráfico regular de trenes.' },
+                { id: 'semaforo', icon: '🚦', title: 'Cruce Regulado', def: 'Es el que tiene un semáforo funcionando normalmente, excluyendo la intermitencia; o hay Carabinero dirigiendo el tránsito.' },
+                { id: 'peaton', icon: '🚶', title: 'Peatón', def: 'Persona que se desplaza a pie por una vía pública.' },
+                { id: 'estacionamiento', icon: '🅿️', title: 'Estacionamiento', def: 'Lugar permitido por la autoridad para estacionar.' },
+                { id: 'bus', icon: '🚌', title: 'Bus o Autobús', def: 'Vehículo a motor diseñado y equipado para el transporte de pasajeros y equipaje, que tiene 18 o más asientos incluyendo el del conductor.' },
+                { id: 'bomberos', icon: '🚒', title: 'Carro de Bomberos', def: 'Vehículo de emergencia, diseñado para la extinción de incendios que cuenta con un estanque de agua y una bomba impulsora...' },
+                { id: 'motocicleta', icon: '🏍️', title: 'Motocicleta', def: 'Vehículo motorizado de dos, tres o cuatro ruedas, provisto de luces delanteras, traseras y de detención...' },
+                { id: 'taxi', icon: '🚕', title: 'Taxi', def: 'Automóvil destinado públicamente al transporte de personas.' },
+                { id: 'camion', icon: '🚚', title: 'Camión', def: 'Vehículo de carga destinado a transportar carga exclusivamente sobre una plataforma fijada a su chasis.' }
+            ];
+
+            // --- 2. ELEMENTOS DEL DOM ---
+            const gameBoard = document.getElementById('game-board');
+            const scoreElement = document.getElementById('score');
+            const modal = document.getElementById('modal');
+            const modalIcon = document.getElementById('modal-icon');
+            const modalTitle = document.getElementById('modal-title');
+            const modalDefinition = document.getElementById('modal-definition');
+            const modalClose = document.getElementById('modal-close');
+            const resetButton = document.getElementById('reset-button');
+
+            // --- 3. VARIABLES DEL ESTADO DEL JUEGO ---
+            let flippedCards = []; // Almacena las 2 tarjetas volteadas temporalmente
+            let matchedPairs = 0;  // Contador de pares encontrados
+            let lockBoard = false; // Bloquea el tablero para evitar más de 2 clics
+
+            // --- 4. FUNCIÓN PRINCIPAL: INICIAR JUEGO ---
+            function initGame() {
+                // Reiniciar variables
+                flippedCards = [];
+                matchedPairs = 0;
+                lockBoard = false;
+                scoreElement.textContent = `Pares Encontrados: 0 / ${cardData.length}`;
+                gameBoard.innerHTML = ''; // Limpiar tablero
+
+                // Duplicar las tarjetas para crear los pares
+                let gameCards = [...cardData, ...cardData];
+
+                // Barajar las tarjetas
+                gameCards.sort(() => 0.5 - Math.random());
+
+                // Crear y añadir las tarjetas al tablero
+                gameCards.forEach(item => {
+                    const cardElement = document.createElement('div');
+                    cardElement.classList.add('card');
+                    cardElement.dataset.id = item.id; // Guardamos el ID para comparar
+
+                    cardElement.innerHTML = `
+                        <div class="card-inner">
+                            <div class="card-front">?</div>
+                            <div class="card-back">${item.icon}</div>
+                        </div>
+                    `;
+
+                    cardElement.addEventListener('click', handleCardClick);
+                    gameBoard.appendChild(cardElement);
+                });
+            }
+
+            // --- 5. MANEJAR EL CLIC EN UNA TARJETA ---
+            function handleCardClick(event) {
+                // Si el tablero está bloqueado, o la tarjeta ya está volteada o encontrada, no hacer nada
+                if (lockBoard) return;
+                const clickedCard = event.currentTarget;
+                if (clickedCard.classList.contains('flipped') || clickedCard.classList.contains('matched')) {
+                    return;
+                }
+
+                // Voltear la tarjeta
+                clickedCard.classList.add('flipped');
+                flippedCards.push(clickedCard);
+
+                // Si se voltearon 2 tarjetas, revisar si coinciden
+                if (flippedCards.length === 2) {
+                    lockBoard = true; // Bloquear el tablero
+                    checkForMatch();
+                }
+            }
+
+            // --- 6. REVISAR SI LAS TARJETAS COINCIDEN ---
+            function checkForMatch() {
+                const [card1, card2] = flippedCards;
+                const id1 = card1.dataset.id;
+                const id2 = card2.dataset.id;
+
+                if (id1 === id2) {
+                    // ¡Es un par!
+                    card1.classList.add('matched');
+                    card2.classList.add('matched');
+                    matchedPairs++;
+                    scoreElement.textContent = `Pares Encontrados: ${matchedPairs} / ${cardData.length}`;
+                    
+                    // Mostrar la definición
+                    setTimeout(() => {
+                        showDefinition(id1);
+                    }, 400); // Esperar un poco para que se vea el par
+                    
+                    resetTurn();
+                    
+                    // Comprobar si ganó
+                    if (matchedPairs === cardData.length) {
+                        setTimeout(showWinMessage, 1000);
+                    }
+                } else {
+                    // No es un par
+                    // Esperar 1 segundo y voltearlas de nuevo
+                    setTimeout(() => {
+                        card1.classList.remove('flipped');
+                        card2.classList.remove('flipped');
+                        resetTurn();
+                    }, 1000);
+                }
+            }
+            
+            // --- 7. MOSTRAR DEFINICIÓN EN EL MODAL ---
+            function showDefinition(id) {
+                const item = cardData.find(d => d.id === id);
+                modalIcon.textContent = item.icon;
+                modalTitle.textContent = item.title;
+                modalDefinition.textContent = item.def;
+                modal.classList.add('show');
+            }
+            
+            function showWinMessage() {
+                modalIcon.textContent = '🎉';
+                modalTitle.textContent = '¡Felicitaciones!';
+                modalDefinition.textContent = '¡Has encontrado todos los pares! Has completado el memorice vial.';
+                modal.classList.add('show');
+            }
+
+            // --- 8. FUNCIONES AUXILIARES ---
+            function resetTurn() {
+                flippedCards = [];
+                lockBoard = false;
+            }
+
+            function hideModal() {
+                modal.classList.remove('show');
+            }
+
+            // --- 9. EVENT LISTENERS ---
+            modalClose.addEventListener('click', hideModal);
+            resetButton.addEventListener('click', initGame);
+            
+            // Cerrar modal si se hace clic fuera del contenido
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    hideModal();
+                }
+            });
+
+            // --- 10. INICIAR EL JUEGO AL CARGAR LA PÁGINA ---
+            initGame();
+        });
+    </script>
+</body>
+</html>
